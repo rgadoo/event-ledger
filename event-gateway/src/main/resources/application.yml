@@ -1,0 +1,72 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: event-gateway
+  datasource:
+    url: jdbc:h2:mem:gatewaydb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+# Location of the internal Account Service and the call timeouts (the "timeout"
+# half of the resiliency strategy). Overridden in docker-compose.
+account-service:
+  base-url: ${ACCOUNT_SERVICE_BASE_URL:http://localhost:8081}
+  connect-timeout-ms: 1000
+  read-timeout-ms: 2000
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      accountService:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        # 4xx responses are data/contract problems, not outages — never trip the breaker.
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    circuitbreakers:
+      enabled: true
+  metrics:
+    tags:
+      application: event-gateway
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+logging:
+  level:
+    root: INFO
+    # The OTLP batch exporter logs a connection error on each flush when no collector is
+    # reachable (e.g. running locally without the docker-compose observability stack).
+    # Harmless — trace IDs are still generated and propagated — so the noise is silenced.
+    io.opentelemetry.exporter.internal.http.HttpExporter: "off"
