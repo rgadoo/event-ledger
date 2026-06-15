@@ -41,3 +41,7 @@ management:
 logging:
   level:
     root: INFO
+    # The OTLP batch exporter logs a connection error on each flush when no collector is
+    # reachable (e.g. running locally without the docker-compose observability stack).
+    # Harmless — trace IDs are still generated and propagated — so the noise is silenced.
+    io.opentelemetry.exporter.internal.http.HttpExporter: "off"
