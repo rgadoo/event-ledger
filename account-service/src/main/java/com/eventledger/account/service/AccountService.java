@@ -9,6 +9,7 @@ import com.eventledger.account.web.dto.BalanceResponse;
 import com.eventledger.account.web.dto.TransactionView;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -24,6 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class AccountService {
 
     private static final Logger log = LoggerFactory.getLogger(AccountService.class);
+
+    /** Decimal places to report balances in — matches the stored amount column scale. */
+    private static final int AMOUNT_SCALE = 4;
 
     private final TransactionRepository repository;
     private final MeterRegistry meterRegistry;
@@ -91,7 +95,10 @@ public class AccountService {
         long debitCount = repository.countByAccountIdAndType(accountId, TransactionType.DEBIT);
         String currency = repository.findFirstByAccountId(accountId)
                 .map(TransactionRecord::getCurrency).orElse(null);
-        return new BalanceResponse(accountId, credits.subtract(debits), currency,
+        // Normalize to the stored amount scale so balances always format consistently
+        // (e.g. 110.0000), matching the transaction amounts rather than varying by SUM result.
+        BigDecimal balance = credits.subtract(debits).setScale(AMOUNT_SCALE, RoundingMode.HALF_EVEN);
+        return new BalanceResponse(accountId, balance, currency,
                 creditCount, debitCount, creditCount + debitCount, Instant.now(clock));
     }
 
