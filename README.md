@@ -113,7 +113,7 @@ The inter-service contract is also published as **OpenAPI** on each service (`/s
 | **Resiliency** | Resilience4j **circuit breaker + timeout** on the Gateway → Account call. |
 | **Graceful degradation** | Account down → `POST /events` returns `503` (not a hang/500); `GET /events/{id}` and `?account=` keep working; balance proxy returns a clear `503`. |
 | **Docker Compose** | `docker compose up` starts both services + the observability stack. |
-| **Tests** | 16 tests across core, resiliency, trace propagation, and full integration. |
+| **Tests** | 24 tests across core, concurrency, resiliency, trace propagation, and full integration. |
 
 ---
 
@@ -139,12 +139,17 @@ outage) is exactly where retries make things *worse* — a breaker fails fast an
 > 4xx responses from the Account Service are configured as `ignore-exceptions`, so a data/contract
 > problem never trips the breaker (only genuine outages/timeouts do).
 
-### Idempotency that tolerates partial failure
+### Idempotency that tolerates partial failure — and concurrency
 
 `eventId` is the idempotency key. The Gateway only short-circuits a duplicate once it is **`APPLIED`**.
 An event that was stored but failed downstream (`RECEIVED`/`FAILED`) is **re-attempted** on a repeat
 submission — safe because the Account Service is itself idempotent on `eventId`. This means a
 transient outage doesn't permanently strand an event.
+
+Idempotency also holds **under concurrency**. Both entities implement `Persistable` so `save()` issues
+a real `INSERT` (an assigned id otherwise makes Spring Data do a silent merge). Two identical events
+arriving at once race on the primary key; the loser catches `DataIntegrityViolationException` and
+returns the winning record as a duplicate — exactly one apply, proven by a 16-thread test.
 
 ### Persistence ordering for degradation
 
@@ -163,7 +168,9 @@ survives — which is what keeps the read endpoints available during an outage.
   error during an outage" requirement meaningful.
 - **Same `eventId` is treated as the same event;** payloads aren't compared for conflicts. A
   production system might reject a mismatched replay — called out as future work.
-- **Single currency per account** is assumed; amounts are summed without FX conversion.
+- **One currency per account, enforced.** An account's currency is set by its first transaction;
+  a later transaction in a different currency is rejected with `422` rather than being summed into
+  a meaningless balance. (Cross-currency accounts / FX are out of scope.)
 
 ---
 
@@ -223,13 +230,15 @@ still generated and propagated.
 mvn test
 ```
 
-16 tests across both modules:
+24 tests across both modules:
 
-- **Account Service** — idempotency, out-of-order balance, CREDIT−DEBIT fold, validation, health.
+- **Account Service** — idempotency, **concurrent-apply (16 threads → exactly once)**, out-of-order
+  balance, CREDIT−DEBIT fold, **currency-mismatch rejection (422)**, validation, account details, health.
 - **Event Gateway** (Account Service stubbed with WireMock) — full apply flow, idempotent duplicate
-  (single downstream call), validation, chronological listing; **circuit breaker opens** after
-  repeated failures and short-circuits; **503 graceful degradation** with local reads still working;
-  **W3C `traceparent` propagation** to the Account Service.
+  (single downstream call), **concurrent duplicates (no 5xx, one row)**, **retry-after-failure**,
+  **downstream 4xx passed through**, validation, 404, chronological listing; **circuit breaker opens**
+  after repeated failures and short-circuits; **503 graceful degradation** with local reads still
+  working; **W3C `traceparent` propagation** to the Account Service.
 
 ---
 
