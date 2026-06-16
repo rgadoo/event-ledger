@@ -20,27 +20,35 @@ database and no shared in-process state.
 
 ---
 
-## Design highlights
+## Design decisions
 
-The decisions most worth reviewing, each linked to a fuller explanation:
+The decisions most worth reviewing, with the reasoning behind each. Fuller explanations and the
+trade-offs considered are in the [Architecture doc](docs/ARCHITECTURE.md#4-design-decisions).
 
-- **Balance is computed as a fold, not a stored running total.** Net balance is
-  `Σ credits − Σ debits` over the stored transactions. Because it is a fold over a set, arrival order
-  is irrelevant and replays are inherently safe — out-of-order tolerance and idempotency follow from
-  the data model rather than from special-case logic.
+- **Balance as a fold, not a stored running total.** Net balance is `Σ credits − Σ debits`, computed
+  over the stored transactions with a database `SUM` aggregate. Modeling balance as a fold over a set
+  — rather than a mutable counter — means arrival order is irrelevant and replays are inherently
+  harmless, so out-of-order tolerance and idempotency follow from the data model instead of requiring
+  reconciliation logic or a lock on a running total.
   [Details »](docs/ARCHITECTURE.md#42-out-of-order-tolerance--balance)
 
-- **Idempotency that holds under concurrency.** A check-then-insert races, so two copies of the same
-  event can both pass the check. This implementation instead inserts and catches the primary-key
-  collision, so concurrent duplicates of the same `eventId` apply exactly once (verified with a
-  16-thread test). [Details »](docs/ARCHITECTURE.md#41-idempotency)
+- **Idempotency that holds under concurrency.** `eventId` is the primary key, but a check-then-insert
+  still races — two concurrent copies of the same event can both pass the existence check. The
+  implementation instead attempts the insert and catches the primary-key violation, treating the loser
+  of the race as a duplicate. The result is exactly-once application even under load, verified with a
+  16-thread test. [Details »](docs/ARCHITECTURE.md#41-idempotency)
 
-- **Graceful degradation by design.** When the Account Service is unavailable, writes return a clear
-  `503` while reads continue to serve from the Gateway's local store; the circuit breaker opens,
-  waits, and recovers automatically. [Details »](docs/ARCHITECTURE.md#44-resiliency-circuit-breaker--timeout)
+- **Circuit breaker with timeouts, chosen over retry.** The failure mode that matters here is a
+  downstream outage, where retries only add load to an already-struggling service. A circuit breaker
+  fails fast, gives the dependency time to recover, and self-heals through a half-open probe; paired
+  timeouts prevent a slow dependency from exhausting the Gateway's request threads. When the Account
+  Service is unavailable the fallback returns a clear `503` — and because the Gateway records each
+  event in its own store first, the read endpoints keep serving throughout the outage.
+  [Details »](docs/ARCHITECTURE.md#44-resiliency-circuit-breaker--timeout)
 
 - **End-to-end distributed tracing.** A single client request produces one trace spanning both
-  services, propagated via the W3C `traceparent` header and viewable as a waterfall in Jaeger.
+  services, propagated by the W3C `traceparent` header and viewable as a waterfall in Jaeger — the
+  basis for answering "where did this request slow down or fail?" across a service boundary.
   [Details »](docs/TOOLS.md#2-jaeger--distributed-tracing)
 
 ---
