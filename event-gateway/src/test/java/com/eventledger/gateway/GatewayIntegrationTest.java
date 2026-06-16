@@ -77,6 +77,10 @@ class GatewayIntegrationTest extends WireMockGatewayTest {
         assertThat(postEvent("{\"eventId\":\"b3\",\"type\":\"CREDIT\",\"amount\":5,\"currency\":\"USD\","
                 + "\"eventTimestamp\":\"2026-05-15T10:00:00Z\"}").getStatusCode())
                 .isEqualTo(HttpStatus.BAD_REQUEST);
+        // malformed currency (not a 3-letter ISO-4217 code)
+        assertThat(postEvent("{\"eventId\":\"b4\",\"accountId\":\"a\",\"type\":\"CREDIT\",\"amount\":5,"
+                + "\"currency\":\"usdollar\",\"eventTimestamp\":\"2026-05-15T10:00:00Z\"}").getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
         // No downstream call should have been made for invalid input.
         wireMock.verify(exactly(0), postRequestedFor(urlPathMatching("/accounts/.*/transactions")));
     }

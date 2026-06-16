@@ -42,6 +42,13 @@ public class AccountServiceClient {
                 .body(TransactionView.class);
     }
 
+    /*
+     * Fallback methods look unused but are invoked by reflection by the Resilience4j
+     * aspect whenever the guarded method throws or the breaker is open. The signature
+     * must match the guarded method plus a trailing Throwable. A 4xx is rethrown as-is
+     * (it is a business/data error, not an outage); anything else becomes a 503-mapped
+     * AccountServiceUnavailableException.
+     */
     @SuppressWarnings("unused")
     private TransactionView applyFallback(String accountId, ApplyTransactionRequest request, Throwable t) {
         if (t instanceof HttpClientErrorException clientError) {

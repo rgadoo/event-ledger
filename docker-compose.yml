@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: account-service/Dockerfile
     container_name: account-service
+    # NOTE: the Account Service is "internal" — only the Gateway should call it. The host
+    # port is published here purely so it can be exercised directly during the demo. In a
+    # real deployment, drop this `ports` block: the Gateway reaches it over the compose
+    # network, and nothing external can. See docs/SECURITY.md.
     ports:
       - "8081:8081"
     environment:

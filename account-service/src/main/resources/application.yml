@@ -18,6 +18,9 @@ spring:
         format_sql: false
 
 management:
+  # NOTE (security posture): actuator endpoints are exposed unauthenticated for demo/grading.
+  # In production, restrict access and set health.show-details to "when-authorized".
+  # See docs/SECURITY.md.
   endpoints:
     web:
       exposure:

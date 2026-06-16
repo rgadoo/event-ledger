@@ -9,6 +9,11 @@ import java.util.Map;
 /**
  * Persists the optional {@code metadata} map as a JSON string column.
  * Hibernate instantiates converters directly, so the mapper is held statically.
+ *
+ * <p>Security: this reads client-supplied JSON, but always into a plain
+ * {@code Map<String, Object>} with default typing disabled (the Jackson default).
+ * Without polymorphic/default typing there is no deserialization-gadget surface —
+ * values are only String/Number/Boolean/List/Map, never arbitrary classes.
  */
 @Converter
 public class MetadataConverter implements AttributeConverter<Map<String, Object>, String> {

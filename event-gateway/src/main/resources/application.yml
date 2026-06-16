@@ -41,6 +41,10 @@ resilience4j:
           - org.springframework.web.client.HttpClientErrorException
 
 management:
+  # NOTE (security posture): actuator endpoints are exposed unauthenticated and health
+  # shows full details for ease of demo/grading. In production these are an information-
+  # disclosure surface — restrict to a separate management port, require auth, and set
+  # health.show-details to "when-authorized". See docs/SECURITY.md.
   endpoints:
     web:
       exposure:
