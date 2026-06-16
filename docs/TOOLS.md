@@ -12,7 +12,8 @@ what it **is**, how to **open** it, what to **look for**, and **why it matters**
 | **Jaeger** | Visual map of one request across services | http://localhost:16686 |
 | **Prometheus** | Live numbers + graphs | http://localhost:9090 |
 | **Swagger** | Click-to-try API docs | http://localhost:8080/swagger-ui.html |
-| **`mvn test`** | 16 automated tests | — |
+| **`mvn test`** | 24 automated tests | — |
+| **IntelliJ IDEA** | Run & debug the services | — |
 
 ---
 
@@ -24,6 +25,7 @@ what it **is**, how to **open** it, what to **look for**, and **why it matters**
 4. [Swagger — API docs](#4-swagger--api-docs)
 5. [Automated tests](#5-automated-tests)
 6. [Image vs Container (quick note)](#6-image-vs-container-quick-note)
+7. [IntelliJ IDEA — running & debugging](#7-intellij-idea--running--debugging)
 
 ---
 
@@ -192,7 +194,7 @@ reading code or knowing curl.
 
 ## 5. Automated tests
 
-**What it is:** 16 tests that run **without any clicking** and prove the code works.
+**What it is:** 24 tests that run **without any clicking** and prove the code works.
 They're the safety net — run them after any code change.
 
 ```bash
@@ -213,8 +215,8 @@ BUILD SUCCESS
 
 | Module | Tests | Covers |
 |---|---|---|
-| Account Service | 8 | idempotency, out-of-order balance, CREDIT−DEBIT fold, validation, health |
-| Event Gateway | 8 | full flow, idempotent duplicate, validation, ordering, **circuit breaker opens**, **503 degradation**, **trace propagation** |
+| Account Service | 12 | idempotency, **concurrent-apply**, out-of-order balance, CREDIT−DEBIT fold, **currency-mismatch 422**, validation, account details, health |
+| Event Gateway | 12 | full flow, idempotent duplicate, **concurrent dupes**, **retry-after-failure**, validation, 404, ordering, **circuit breaker opens**, **503 degradation**, **trace propagation** |
 
 **Why it matters:** the manual curl tests check it *once, by hand*. These check it
 *every time, automatically* — so you catch a break the moment you introduce it.
@@ -230,3 +232,23 @@ In Docker Desktop, the **Images** list shows blueprints. An empty circle (○) =
 a green dot (●) = a container is running from it. `docker compose up` turns blueprints
 into running containers; `docker compose down` stops them (the blueprints stay, so the
 next start is fast).
+
+## 7. IntelliJ IDEA — running & debugging
+
+**What it is:** the IDE used to build the project. It runs either service with one click and
+lets you set breakpoints to step through the code while a request is in flight.
+
+**Run a service:**
+
+1. Open `AccountServiceApplication.java` (or `EventGatewayApplication.java`)
+2. Click the green ▶ next to the `main` method
+3. The **Run** console shows that service's live JSON logs
+
+Start **account-service first**, then **event-gateway**.
+
+![IntelliJ IDEA with the event-ledger project open and a service running in the console](images/intellij.png)
+*The project in IntelliJ — both modules in the tree, a service class in the editor, and live JSON logs in the Run console.*
+
+**Why it matters (debugging):** set a breakpoint in `EventService.submit` or
+`AccountService.apply`, fire a `curl`, and step through the exact path — the idempotency
+check, the downstream call, the status update. Far faster than reading logs when chasing a bug.
