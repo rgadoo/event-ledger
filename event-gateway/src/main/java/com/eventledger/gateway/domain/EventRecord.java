@@ -8,10 +8,14 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Lob;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import org.springframework.data.domain.Persistable;
 
 /**
  * The Gateway's local record of a submitted event. {@code eventId} is the primary
@@ -19,12 +23,21 @@ import java.util.Map;
  * rather than stored twice. This table is owned solely by the Gateway and is the
  * source of truth for the event-listing endpoints, so those reads keep working
  * even when the Account Service is down.
+ *
+ * <p>Implements {@link Persistable} so the first {@code save()} issues a real SQL
+ * {@code INSERT} (not a merge). That lets a concurrent submission of the same
+ * {@code eventId} collide on the primary key, which the service catches and treats
+ * as a duplicate — keeping idempotency correct under load. Later saves (status
+ * updates) are normal updates.
  */
 @Entity
 @Table(name = "events", indexes = {
         @Index(name = "idx_event_account", columnList = "accountId")
 })
-public class EventRecord {
+public class EventRecord implements Persistable<String> {
+
+    @Transient
+    private boolean isNew = true;
 
     @Id
     @Column(nullable = false, updatable = false)
@@ -79,6 +92,23 @@ public class EventRecord {
         this.metadata = metadata;
         this.receivedAt = receivedAt;
         this.status = EventStatus.RECEIVED;
+    }
+
+    @Override
+    public String getId() {
+        return eventId;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    /** Once persisted or loaded, the entity is no longer new (subsequent saves are updates). */
+    @PrePersist
+    @PostLoad
+    void markNotNew() {
+        this.isNew = false;
     }
 
     public void markApplied(Instant when) {

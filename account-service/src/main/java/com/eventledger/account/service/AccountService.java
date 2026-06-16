@@ -13,8 +13,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,25 +38,38 @@ public class AccountService {
     /**
      * Apply a transaction idempotently. If the {@code eventId} was already applied,
      * the stored record is returned unchanged and no new movement is recorded.
+     *
+     * <p>Correct under concurrency: rather than a check-then-insert (which races), it
+     * attempts the insert and, if a concurrent caller won the primary-key race, catches
+     * the {@link DataIntegrityViolationException} and returns the winning record as a
+     * duplicate. Not wrapped in a single transaction so the post-collision lookup runs
+     * in a fresh transaction (the failed insert's transaction has rolled back).
      */
-    @Transactional
     public ApplyOutcome apply(String accountId, ApplyTransactionRequest request) {
-        return repository.findById(request.eventId())
-                .map(existing -> {
-                    log.info("Duplicate transaction ignored: eventId={} accountId={}",
-                            existing.getEventId(), existing.getAccountId());
-                    countApply(existing.getType(), "duplicate");
-                    return new ApplyOutcome(existing, true);
-                })
-                .orElseGet(() -> {
-                    TransactionRecord saved = repository.save(new TransactionRecord(
-                            request.eventId(), accountId, request.type(), request.amount(),
-                            request.currency(), request.eventTimestamp(), Instant.now(clock)));
-                    log.info("Transaction applied: eventId={} accountId={} type={} amount={}",
-                            saved.getEventId(), accountId, saved.getType(), saved.getAmount());
-                    countApply(saved.getType(), "applied");
-                    return new ApplyOutcome(saved, false);
-                });
+        Optional<TransactionRecord> existing = repository.findById(request.eventId());
+        if (existing.isPresent()) {
+            return asDuplicate(existing.get());
+        }
+        try {
+            TransactionRecord saved = repository.save(new TransactionRecord(
+                    request.eventId(), accountId, request.type(), request.amount(),
+                    request.currency(), request.eventTimestamp(), Instant.now(clock)));
+            log.info("Transaction applied: eventId={} accountId={} type={} amount={}",
+                    saved.getEventId(), accountId, saved.getType(), saved.getAmount());
+            countApply(saved.getType(), "applied");
+            return new ApplyOutcome(saved, false);
+        } catch (DataIntegrityViolationException raced) {
+            // A concurrent submission of the same eventId won the insert — treat as duplicate.
+            TransactionRecord winner = repository.findById(request.eventId()).orElseThrow(() -> raced);
+            return asDuplicate(winner);
+        }
+    }
+
+    private ApplyOutcome asDuplicate(TransactionRecord existing) {
+        log.info("Duplicate transaction ignored: eventId={} accountId={}",
+                existing.getEventId(), existing.getAccountId());
+        countApply(existing.getType(), "duplicate");
+        return new ApplyOutcome(existing, true);
     }
 
     /** Net balance = sum of CREDITs - sum of DEBITs. Order-independent by construction. */

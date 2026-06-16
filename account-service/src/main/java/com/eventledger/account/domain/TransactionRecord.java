@@ -6,9 +6,13 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.Instant;
+import org.springframework.data.domain.Persistable;
 
 /**
  * An immutable transaction applied to an account.
@@ -17,12 +21,20 @@ import java.time.Instant;
  * applying a transaction naturally idempotent: replaying the same event is a
  * no-op insert. Because the balance is computed as a fold over these rows
  * (see {@code AccountService}), arrival order never affects the result.
+ *
+ * <p>Implements {@link Persistable} so that {@code save()} issues a real SQL
+ * {@code INSERT} (not a merge). With an assigned id, Spring Data would otherwise
+ * treat every save as an update and silently overwrite — which would defeat the
+ * primary-key guard that protects idempotency under concurrent submissions.
  */
 @Entity
 @Table(name = "transactions", indexes = {
         @Index(name = "idx_tx_account", columnList = "accountId")
 })
-public class TransactionRecord {
+public class TransactionRecord implements Persistable<String> {
+
+    @Transient
+    private boolean isNew = true;
 
     /** The originating event id — also the idempotency key. */
     @Id
@@ -64,6 +76,23 @@ public class TransactionRecord {
         this.currency = currency;
         this.eventTimestamp = eventTimestamp;
         this.recordedAt = recordedAt;
+    }
+
+    @Override
+    public String getId() {
+        return eventId;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    /** Once persisted or loaded, the entity is no longer new (subsequent saves are updates). */
+    @PrePersist
+    @PostLoad
+    void markNotNew() {
+        this.isNew = false;
     }
 
     public String getEventId() {

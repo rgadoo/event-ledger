@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -50,18 +51,37 @@ public class EventService {
      */
     public SubmitResult submit(SubmitEventRequest req) {
         Optional<EventRecord> existing = repository.findById(req.eventId());
-
         if (existing.isPresent() && existing.get().getStatus() == EventStatus.APPLIED) {
-            log.info("Duplicate event ignored: eventId={} accountId={}", req.eventId(), req.accountId());
-            count(req.type().name(), "duplicate");
-            return new SubmitResult(existing.get(), SubmitOutcome.DUPLICATE);
+            return alreadyApplied(existing.get(), req);
         }
 
-        boolean isNew = existing.isEmpty();
-        EventRecord record = existing.orElseGet(() -> repository.save(new EventRecord(
-                req.eventId(), req.accountId(), req.type(), req.amount(), req.currency(),
-                req.eventTimestamp(), req.metadata(), Instant.now(clock))));
+        EventRecord record;
+        boolean isNew;
+        if (existing.isPresent()) {
+            record = existing.get();
+            isNew = false;
+        } else {
+            try {
+                record = repository.save(new EventRecord(
+                        req.eventId(), req.accountId(), req.type(), req.amount(), req.currency(),
+                        req.eventTimestamp(), req.metadata(), Instant.now(clock)));
+                isNew = true;
+            } catch (DataIntegrityViolationException raced) {
+                // A concurrent submission of the same eventId won the insert race.
+                EventRecord winner = repository.findById(req.eventId()).orElseThrow(() -> raced);
+                if (winner.getStatus() == EventStatus.APPLIED) {
+                    return alreadyApplied(winner, req);
+                }
+                record = winner;
+                isNew = false;
+            }
+        }
 
+        return applyToAccount(record, req, isNew);
+    }
+
+    /** Attempt to apply the event to the Account Service, updating local status accordingly. */
+    private SubmitResult applyToAccount(EventRecord record, SubmitEventRequest req, boolean isNew) {
         try {
             accountClient.applyTransaction(req.accountId(), new ApplyTransactionRequest(
                     req.eventId(), req.type(), req.amount(), req.currency(), req.eventTimestamp()));
@@ -77,6 +97,12 @@ public class EventService {
             count(req.type().name(), "degraded");
             return new SubmitResult(record, SubmitOutcome.DEGRADED);
         }
+    }
+
+    private SubmitResult alreadyApplied(EventRecord record, SubmitEventRequest req) {
+        log.info("Duplicate event ignored: eventId={} accountId={}", req.eventId(), req.accountId());
+        count(req.type().name(), "duplicate");
+        return new SubmitResult(record, SubmitOutcome.DUPLICATE);
     }
 
     public EventRecord getEvent(String eventId) {
