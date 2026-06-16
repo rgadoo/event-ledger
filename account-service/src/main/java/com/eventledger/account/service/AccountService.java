@@ -11,12 +11,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -78,40 +78,33 @@ public class AccountService {
         return new ApplyOutcome(existing, true);
     }
 
-    /** Net balance = sum of CREDITs - sum of DEBITs. Order-independent by construction. */
+    /**
+     * Net balance = sum of CREDITs - sum of DEBITs. Computed with database aggregates
+     * rather than loading every transaction, so it stays O(1) work for the service
+     * regardless of account size. Order-independent by construction.
+     */
     @Transactional(readOnly = true)
     public BalanceResponse balance(String accountId) {
-        List<TransactionRecord> txns = repository.findByAccountIdOrderByEventTimestampAsc(accountId);
-        BigDecimal balance = BigDecimal.ZERO;
-        long credits = 0;
-        long debits = 0;
-        String currency = null;
-        for (TransactionRecord t : txns) {
-            if (t.getType() == TransactionType.CREDIT) {
-                balance = balance.add(t.getAmount());
-                credits++;
-            } else {
-                balance = balance.subtract(t.getAmount());
-                debits++;
-            }
-            if (currency == null) {
-                currency = t.getCurrency();
-            }
-        }
-        return new BalanceResponse(accountId, balance, currency, credits, debits, txns.size(), Instant.now(clock));
+        BigDecimal credits = repository.sumAmount(accountId, TransactionType.CREDIT);
+        BigDecimal debits = repository.sumAmount(accountId, TransactionType.DEBIT);
+        long creditCount = repository.countByAccountIdAndType(accountId, TransactionType.CREDIT);
+        long debitCount = repository.countByAccountIdAndType(accountId, TransactionType.DEBIT);
+        String currency = repository.findFirstByAccountId(accountId)
+                .map(TransactionRecord::getCurrency).orElse(null);
+        return new BalanceResponse(accountId, credits.subtract(debits), currency,
+                creditCount, debitCount, creditCount + debitCount, Instant.now(clock));
     }
 
-    /** Account view: balance plus the most recent transactions (newest first). */
+    /** Account view: balance plus the most recent transactions (newest first, limited at the DB). */
     @Transactional(readOnly = true)
     public AccountResponse account(String accountId, int recentLimit) {
-        List<TransactionRecord> txns = repository.findByAccountIdOrderByEventTimestampAsc(accountId);
         BalanceResponse bal = balance(accountId);
-        List<TransactionView> recent = txns.stream()
-                .sorted(Comparator.comparing(TransactionRecord::getEventTimestamp).reversed())
-                .limit(recentLimit)
+        List<TransactionView> recent = repository
+                .findByAccountIdOrderByEventTimestampDesc(accountId, PageRequest.of(0, recentLimit))
+                .stream()
                 .map(TransactionView::from)
                 .toList();
-        return new AccountResponse(accountId, bal.balance(), bal.currency(), txns.size(), recent);
+        return new AccountResponse(accountId, bal.balance(), bal.currency(), bal.transactionCount(), recent);
     }
 
     private void countApply(TransactionType type, String outcome) {
