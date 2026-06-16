@@ -4,10 +4,24 @@ A two-service system that ingests financial transaction events and maintains acc
 correctly under real-world upstream conditions: events that arrive **out of order**, events
 **delivered more than once**, and **partial outages** of a downstream service.
 
-```
-   Client ──▶  Event Gateway  ──[ circuit breaker + traceparent ]──▶  Account Service
-                 :8080 (public)                                          :8081 (internal)
-                 H2: events                                              H2: transactions
+```mermaid
+flowchart LR
+    client(["Client"])
+
+    subgraph gateway["Event Gateway — :8080 (public)"]
+        gw["Validate · Idempotency · Record"]
+        gwdb[("H2: events")]
+        gw --- gwdb
+    end
+
+    subgraph account["Account Service — :8081 (internal)"]
+        acct["Balances · History"]
+        acctdb[("H2: transactions")]
+        acct --- acctdb
+    end
+
+    client -->|REST| gw
+    gw -->|"circuit breaker + traceparent"| acct
 ```
 
 - **Event Gateway** (public) — validates input, enforces idempotency, records every event, and
