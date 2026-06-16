@@ -8,6 +8,10 @@ once**, and to **degrade gracefully** when a downstream service is unavailable.
   and applies them to the Account Service through a circuit breaker.
 - **Account Service** (internal, port `8081`) — owns account balances and transaction history.
 
+📚 **Docs:** [Architecture & Design](docs/ARCHITECTURE.md) (diagrams) ·
+[Security Audit](docs/SECURITY.md) · [Testing Walkthrough](docs/TESTING.md) ·
+[Tools & Observability](docs/TOOLS.md)
+
 ---
 
 ## Table of Contents
