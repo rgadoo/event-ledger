@@ -20,7 +20,7 @@ Each step has: the **command**, what to **expect**, and **why it matters**.
 5. [Take money out (DEBIT)](#5-take-money-out-debit)
 6. [Idempotency — no double charge](#6-idempotency--no-double-charge)
 7. [Out-of-order events](#7-out-of-order-events)
-8. [Bad input is rejected](#8-bad-input-is-rejected)
+8. [Invalid input & rejected transactions](#8-invalid-input--rejected-transactions)
 9. [Graceful degradation — a service goes down](#9-graceful-degradation--a-service-goes-down)
 10. [Circuit breaker — the "fuse"](#10-circuit-breaker--the-fuse)
 11. [One-glance cheat sheet](#11-one-glance-cheat-sheet)
@@ -182,6 +182,11 @@ curl -s http://localhost:8080/accounts/acct-123/balance
 > 🔑 **The fingerprint is `eventId`.** Same `eventId` = same event = do it only once.
 > **Demo clue:** the duplicate reply shows the **original** `receivedAt` time, not "now".
 
+> ⚙️ **Under concurrency too.** Two identical events arriving at the *same instant* still
+> apply exactly once (insert-and-catch on the primary key). That can't be shown with a single
+> `curl`, so it's proven by the automated `AccountServiceConcurrencyTest` /
+> `GatewayConcurrencyTest` (16 threads → one apply, one row).
+
 ---
 
 ## 7. Out-of-order events
@@ -232,9 +237,9 @@ not by arrival order. Balance is also correct regardless of order.
 
 ---
 
-## 8. Bad input is rejected
+## 8. Invalid input & rejected transactions
 
-**What it tests:** broken events are blocked with a clear error.
+**What it tests:** broken or disallowed events are blocked with a clear error.
 The `-i` flag shows the **status code**.
 
 **Zero amount (must be > 0):**
@@ -270,6 +275,44 @@ curl -i -s -X POST http://localhost:8080/events \
 ```
 
 **Expect:** `HTTP/1.1 400`. The bad event is **not** saved.
+
+**Malformed currency (must be a 3-letter ISO-4217 code):**
+
+```bash
+curl -i -s -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventId": "bad-3",
+    "accountId": "acct-123",
+    "type": "CREDIT",
+    "amount": 5,
+    "currency": "usdollar",
+    "eventTimestamp": "2026-05-15T10:00:00Z"
+  }'
+```
+
+**Expect:** `HTTP/1.1 400` — `"currency":"must be a 3-letter ISO-4217 code"`.
+
+**Currency mismatch — one currency per account (422):**
+
+An account's currency is set by its **first** transaction. A later transaction in a
+different currency is rejected with **422** rather than being summed into a meaningless
+mixed-currency balance.
+
+```bash
+# 1) establish acct-eur in EUR
+curl -s -o /dev/null -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"eventId":"eur-1","accountId":"acct-eur","type":"CREDIT","amount":100,"currency":"EUR","eventTimestamp":"2026-05-15T10:00:00Z"}'
+
+# 2) now try a USD transaction on the same account
+curl -i -s -X POST http://localhost:8080/events \
+  -H "Content-Type: application/json" \
+  -d '{"eventId":"eur-2","accountId":"acct-eur","type":"DEBIT","amount":10,"currency":"USD","eventTimestamp":"2026-05-15T11:00:00Z"}'
+```
+
+**Expect:** the second call returns `HTTP/1.1 422` (Unprocessable Entity) with a clear
+currency-mismatch message — a financial-correctness guard.
 
 ---
 
@@ -406,7 +449,8 @@ good calls → 🟢 closed. **It broke, protected itself, and healed — no huma
 | 5 | Take out | `POST /events` DEBIT 40 | balance `110` |
 | 6 | Idempotency | re-POST same `eventId` | balance **unchanged**, `200` |
 | 7 | Out-of-order | POST late then early; list | early shows **first** |
-| 8 | Bad input | `POST` amount `0` | `400` |
+| 8 | Bad input | `POST` amount `0` / bad currency | `400` |
+| 8 | Currency mismatch | `POST` USD on a EUR account | `422` |
 | 9 | Degradation | stop Account; POST fresh | `503 FAILED`, reads still work |
 | 10 | Circuit breaker | loop fails → trip → recover | `open` → `half_open` → `closed` |
 
@@ -416,7 +460,8 @@ good calls → 🟢 closed. **It broke, protected itself, and healed — no huma
 
 - ✅ Health
 - ✅ Credit / Debit / Balance
-- ✅ Idempotency (no double charge)
+- ✅ Idempotency (no double charge) — including under concurrency (automated test)
 - ✅ Out-of-order events
-- ✅ Bad input rejected
+- ✅ Bad input rejected (incl. currency format)
+- ✅ Currency consistency per account (422)
 - ✅ Graceful degradation + circuit breaker
