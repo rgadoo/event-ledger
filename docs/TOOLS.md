@@ -61,7 +61,7 @@ docker compose ps
 | otel-collector | receives traces, forwards to Jaeger |
 | prometheus | metrics collector |
 
-![Docker Desktop showing all five event-ledger containers running](docker-containers.png)
+![Docker Desktop showing all five event-ledger containers running](images/docker-containers.png)
 *Docker Desktop — all 5 containers running under the `event-ledger` stack.*
 
 **Stop the stack:**
@@ -108,7 +108,7 @@ event-gateway: http post /events                         ← whole request arriv
        └─ account-service: http post /accounts/.../transactions  ← account does the work
 ```
 
-![Jaeger trace timeline: one request spanning the gateway and account service](jaeger-trace.png)
+![Jaeger trace timeline: one request spanning the gateway and account service](images/jaeger-trace.png)
 *One request, 3 spans across 2 services. Yellow = Gateway, teal = Account Service. The teal bar sits inside the yellow → the Gateway was waiting on the Account Service.*
 
 **How to read it:**
@@ -146,7 +146,7 @@ to see it over time. (The query language is called **PromQL**.)
 | `up` | are the services alive? `1` = up, `0` = down |
 | `http_server_requests_seconds_count` | request counts per endpoint |
 
-![Prometheus query for gateway_events_total returning a count of 6](prometheus-query.png)
+![Prometheus query for gateway_events_total returning a count of 6](images/prometheus-query.png)
 *Querying our custom metric `gateway_events_total` — broken down by `type` and `outcome`, here showing 6 applied CREDITs.*
 
 **Make a number climb 📈** — fire 5 events, then re-run `gateway_events_total`:
@@ -174,7 +174,7 @@ the numbers and **alert** you when something spikes (errors, breaker tripping).
 - Gateway: http://localhost:8080/swagger-ui.html
 - Account Service: http://localhost:8081/swagger-ui.html
 
-![Swagger UI for the Event Gateway API listing its endpoints](swagger-ui.png)
+![Swagger UI for the Event Gateway API listing its endpoints](images/swagger-ui.png)
 *The Event Gateway API in Swagger — every endpoint listed and runnable from the browser.*
 
 **Try an endpoint:**
