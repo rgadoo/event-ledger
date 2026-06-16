@@ -145,14 +145,14 @@ flowchart TD
     validate -->|Yes| lookup{"eventId exists?"}
 
     lookup -->|"Yes — APPLIED"| dup[["200 OK · return original"]]
-    lookup -->|"Yes — FAILED / RECEIVED"| call
+    lookup -->|"Yes — FAILED / RECEIVED"| callAcct
     lookup -->|No| insert["INSERT event (RECEIVED)"]
 
-    insert -->|"PK collision (concurrent dup)"| race["catch → fetch winner → treat as duplicate"]
-    insert -->|ok| call["Call Account Service"]
-    race --> call
+    insert -->|"PK collision (concurrent dup)"| race["catch, fetch winner, treat as duplicate"]
+    insert -->|ok| callAcct["Call Account Service"]
+    race --> callAcct
 
-    call --> outcome{Outcome}
+    callAcct --> outcome{Outcome}
     outcome -->|Success| applied[["mark APPLIED · 201 / 200"]]
     outcome -->|"Account down / breaker open"| degraded[["mark FAILED · 503 (retryable)"]]
     outcome -->|"4xx business reject"| rejected[["mark FAILED · forward 4xx"]]
