@@ -22,9 +22,10 @@ I treated this as a design problem first and a coding problem second.
 
 - **Language — Java / Spring Boot.** It fits the kind of environment this role works in, and has
   strong built-in support for everything the exercise asks for.
-- **Handling failure — a "circuit breaker" instead of retrying.** If the other service is down,
-  retrying just piles on more pressure. A circuit breaker stops calling it for a short while, then
-  checks whether it has recovered — and heals on its own.
+- **Handling failure — I chose a "circuit breaker."** The brief offered three ways to handle failure
+  and asked me to explain my choice. I picked the circuit breaker because the main risk is the other
+  service being *down* — and retrying then just adds more pressure to a service that is already
+  struggling. A circuit breaker steps back, waits, and checks whether it has recovered, healing on its own.
 - **Working out the balance by adding up history, rather than keeping one running number.** This
   sounds small, but it is the most important choice: it means the balance is automatically correct
   even when events arrive in the wrong order or arrive twice.
