@@ -11,9 +11,10 @@ I treated this as a design problem first and a coding problem second.
 1. **I read the brief carefully and made the key choices before writing any code** — which language
    to use, how to handle failures, and how far to take the optional extras. Some of these were real
    decisions, so I thought them through instead of just picking the obvious option.
-2. **I decided the overall shape of the system up front** — two separate services, each with its own
-   database, and a clear plan for how they talk to each other and stay correct. Planning first meant
-   the coding was straightforward.
+2. **I planned my approach within the structure the brief required.** The brief specified two separate
+   services, each with its own database — that part was a requirement, not my choice. What I decided was
+   *how* they talk to each other, how the data is modeled so the balance stays correct, and how the
+   system behaves when a service is down. Planning that first meant the coding was straightforward.
 3. **I built it in small steps and saved each step**, so the project history shows how it actually
    came together (something the brief asked for).
 

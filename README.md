@@ -81,7 +81,7 @@ Without Docker, run `mvn -pl account-service spring-boot:run`, then the Gateway 
 mvn test
 ```
 
-24 automated tests covering core behavior, concurrency, resiliency, trace propagation, and the full
+25 automated tests covering core behavior, concurrency, resiliency, trace propagation, and the full
 Gateway → Account integration. Requires JDK 21 — if your default `mvn` runs a newer JDK, set
 `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 
@@ -120,7 +120,7 @@ Gateway → Account integration. Requires JDK 21 — if your default `mvn` runs 
 | **Resiliency** | Resilience4j circuit breaker with connect/read timeouts on the Gateway → Account call. |
 | **Graceful degradation** | Account Service down → `POST /events` returns `503`; `GET /events/{id}` and `?account=` continue to work; balance queries return a clear `503`. |
 | **Docker Compose** | `docker compose up` starts both services and the observability stack. |
-| **Automated tests** | 24 tests across core functionality, concurrency, resiliency, trace propagation, and integration. |
+| **Automated tests** | 25 tests across core functionality, concurrency, resiliency, trace propagation, and integration. |
 
 Design trade-offs and assumptions (duplicate returns `200`, one currency per account, and others)
 are documented in the [Architecture doc](docs/ARCHITECTURE.md#7-trade-offs--alternatives).

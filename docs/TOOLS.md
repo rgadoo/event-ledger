@@ -12,7 +12,7 @@ what it **is**, how to **open** it, what to **look for**, and **why it matters**
 | **Jaeger** | Visual map of one request across services | http://localhost:16686 |
 | **Prometheus** | Live numbers + graphs | http://localhost:9090 |
 | **Swagger** | Click-to-try API docs | http://localhost:8080/swagger-ui.html |
-| **`mvn test`** | 24 automated tests | — |
+| **`mvn test`** | 25 automated tests | — |
 | **IntelliJ IDEA** | Run & debug the services | — |
 
 ---
@@ -194,7 +194,7 @@ reading code or knowing curl.
 
 ## 5. Automated tests
 
-**What it is:** 24 tests that run **without any clicking** and prove the code works.
+**What it is:** 25 tests that run **without any clicking** and prove the code works.
 They're the safety net — run them after any code change.
 
 ```bash
@@ -216,7 +216,7 @@ BUILD SUCCESS
 | Module | Tests | Covers |
 |---|---|---|
 | Account Service | 12 | idempotency, **concurrent-apply**, out-of-order balance, CREDIT−DEBIT fold, **currency-mismatch 422**, validation, account details, health |
-| Event Gateway | 12 | full flow, idempotent duplicate, **concurrent dupes**, **retry-after-failure**, validation, 404, ordering, **circuit breaker opens**, **503 degradation**, **trace propagation** |
+| Event Gateway | 13 | full flow, idempotent duplicate, **concurrent dupes**, **retry-after-failure**, **metadata round-trip**, validation, 404, ordering, **circuit breaker opens**, **503 degradation**, **trace propagation** |
 
 **Why it matters:** the manual curl tests check it *once, by hand*. These check it
 *every time, automatically* — so you catch a break the moment you introduce it.

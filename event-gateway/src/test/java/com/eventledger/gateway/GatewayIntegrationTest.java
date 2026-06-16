@@ -53,6 +53,24 @@ class GatewayIntegrationTest extends WireMockGatewayTest {
     }
 
     @Test
+    void optionalMetadataIsStoredAndReturned() {
+        stubApplyAccepted();
+        String json = """
+                {"eventId":"meta-1","accountId":"acct-1","type":"CREDIT","amount":10,"currency":"USD",
+                 "eventTimestamp":"2026-05-15T10:00:00Z",
+                 "metadata":{"source":"mainframe-batch","batchId":"B-9042"}}
+                """;
+        assertThat(postEvent(json).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        // The optional metadata object round-trips through storage and back out on read.
+        ResponseEntity<String> fetched = rest.getForEntity("/events/meta-1", String.class);
+        assertThat(fetched.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(fetched.getBody())
+                .contains("\"source\":\"mainframe-batch\"")
+                .contains("\"batchId\":\"B-9042\"");
+    }
+
+    @Test
     void duplicateEventReturns200AndIsNotReapplied() {
         stubApplyAccepted();
         String payload = event("evt-dup", "acct-1", "CREDIT", "150.00", "2026-05-15T10:00:00Z");
