@@ -1,114 +1,111 @@
 # Event Ledger
 
-*Two services, one ledger, and a stubborn refusal to get your balance wrong — even when the same
-event shows up twice, events arrive in the wrong order, or the service on the other end falls over
-mid-write.*
-
-Upstream systems are messy. They deliver the **same event twice**. They send Tuesday's event
-**after** Wednesday's. And every so often the thing you depend on is just **down**. This system
-takes that chaos and still produces a correct, traceable, observable ledger.
+A two-service system that ingests financial transaction events and maintains account balances
+correctly under real-world upstream conditions: events that arrive **out of order**, events
+**delivered more than once**, and **partial outages** of a downstream service.
 
 ```
    Client ──▶  Event Gateway  ──[ circuit breaker + traceparent ]──▶  Account Service
                  :8080 (public)                                          :8081 (internal)
-                 own H2: events                                          own H2: transactions
+                 H2: events                                              H2: transactions
 ```
 
-- **Event Gateway** — the bouncer. Validates input, de-duplicates, records every event, and calls
-  the ledger through a circuit breaker. The only door to the outside world.
-- **Account Service** — the ledger. Owns balances and history; never exposed to clients.
+- **Event Gateway** (public) — validates input, enforces idempotency, records every event, and
+  applies transactions to the Account Service through a circuit breaker.
+- **Account Service** (internal) — owns account balances and transaction history; not exposed to
+  external clients.
+
+Each service is an independent Spring Boot process with its own in-memory database — no shared
+database and no shared in-process state.
 
 ---
 
-## The interesting bits
+## Design highlights
 
-The decisions I'd actually enjoy talking through in the walkthrough:
+The decisions most worth reviewing, each linked to a fuller explanation:
 
-🧮 **Balance is a fold, not a running total.** `Σ credits − Σ debits`. Out-of-order? Doesn't matter.
-Replays? Harmless. The two hardest requirements simply *dissolve* into the data model instead of
-needing special-case code. → [how it works](docs/ARCHITECTURE.md#42-out-of-order-tolerance--balance)
+- **Balance is computed as a fold, not a stored running total.** Net balance is
+  `Σ credits − Σ debits` over the stored transactions. Because it is a fold over a set, arrival order
+  is irrelevant and replays are inherently safe — out-of-order tolerance and idempotency follow from
+  the data model rather than from special-case logic.
+  [Details »](docs/ARCHITECTURE.md#42-out-of-order-tolerance--balance)
 
-🪪 **Idempotency that survives a race.** "`findById` then `save`" is a lie under concurrency — two
-copies of the same event both pass the check. This one inserts and *catches the primary-key
-collision*. Sixteen threads, one event, exactly one apply. → [how it works](docs/ARCHITECTURE.md#41-idempotency)
+- **Idempotency that holds under concurrency.** A check-then-insert races, so two copies of the same
+  event can both pass the check. This implementation instead inserts and catches the primary-key
+  collision, so concurrent duplicates of the same `eventId` apply exactly once (verified with a
+  16-thread test). [Details »](docs/ARCHITECTURE.md#41-idempotency)
 
-🔌 **When the ledger dies, the gateway lives.** Writes fail fast with a clean `503`; reads keep
-serving from the gateway's own store. The circuit breaker trips, waits, then heals itself — no human
-required. → [how it works](docs/ARCHITECTURE.md#44-resiliency-circuit-breaker--timeout)
+- **Graceful degradation by design.** When the Account Service is unavailable, writes return a clear
+  `503` while reads continue to serve from the Gateway's local store; the circuit breaker opens,
+  waits, and recovers automatically. [Details »](docs/ARCHITECTURE.md#44-resiliency-circuit-breaker--timeout)
 
-🧵 **One request, one trace, two services.** A single client call becomes one clickable waterfall in
-Jaeger, stitched together by a `traceparent` header. → [see it](docs/TOOLS.md#2-jaeger--distributed-tracing)
+- **End-to-end distributed tracing.** A single client request produces one trace spanning both
+  services, propagated via the W3C `traceparent` header and viewable as a waterfall in Jaeger.
+  [Details »](docs/TOOLS.md#2-jaeger--distributed-tracing)
 
 ---
 
-## Run it
+## Running the system
 
 ```bash
 docker compose up --build
 ```
 
-Brings up both services plus the full observability stack — Gateway `:8080`, Jaeger UI `:16686`,
-Prometheus `:9090`. (No Docker? `mvn -pl account-service spring-boot:run`, then the gateway.)
+Starts both services and the observability stack — Gateway `:8080`, Jaeger UI `:16686`,
+Prometheus `:9090`. The Gateway waits for the Account Service to be healthy before starting.
+Without Docker, run `mvn -pl account-service spring-boot:run`, then the Gateway in a second terminal.
 
 ```bash
 mvn test
 ```
 
-**24 tests** — concurrency, resiliency, trace propagation, and the full Gateway → Account flow.
-*(Needs JDK 21. If your `mvn` runs a newer JDK: `export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.)*
+24 automated tests covering core behavior, concurrency, resiliency, trace propagation, and the full
+Gateway → Account integration. Requires JDK 21 — if your default `mvn` runs a newer JDK, set
+`export JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 
 ---
 
-## Take it for a spin
+## Documentation
 
-The fastest way to *get* this system is to **try to break it** — submit the same event twice, fire
-one out of order, then kill the ledger mid-write and watch the gateway stay composed. Every step,
-with copy-paste `curl`s and exactly what to expect, lives in the
-**[Testing Walkthrough »](docs/TESTING.md)**
-
----
-
-## Go deeper
-
-| If you want… | Open |
+| Topic | Document |
 |---|---|
-| 📐 The design — diagrams for the request flow, state machines, data model, deployment | **[Architecture & Design](docs/ARCHITECTURE.md)** |
-| 🔒 The threat model — what's safe, what I'd harden for production, and why | **[Security Audit](docs/SECURITY.md)** |
-| 🧪 To break it yourself, one curl at a time | **[Testing Walkthrough](docs/TESTING.md)** |
-| 🛠️ Jaeger, Prometheus, Swagger, IntelliJ — how to drive each | **[Tools & Observability](docs/TOOLS.md)** |
+| Architecture and design, with diagrams (request flow, state machines, data model, deployment) | [Architecture & Design](docs/ARCHITECTURE.md) |
+| Security review — threat model, current posture, and production recommendations | [Security Audit](docs/SECURITY.md) |
+| Manual test walkthrough — every behavior, step by step, with `curl` examples | [Testing Walkthrough](docs/TESTING.md) |
+| Observability and tooling — Jaeger, Prometheus, Swagger, IntelliJ | [Tools & Observability](docs/TOOLS.md) |
 
 ---
 
-## For the reviewer: requirements & API
+## Requirements & API
 
 <details>
-<summary><b>✅ Requirement-by-requirement coverage</b> (click to expand)</summary>
+<summary><b>Requirement-by-requirement coverage</b></summary>
 
 <br>
 
-| Requirement | Where it lives |
+| Requirement | Implementation |
 |---|---|
-| **Idempotency** | `eventId` is the primary key in both stores, with an insert-and-catch that stays correct under **concurrent** duplicates. Returns the original on a repeat; balance never moves twice. |
-| **Out-of-order** | Listings sort by `eventTimestamp`; balance is an order-independent fold. |
-| **Balance** | `Σ CREDIT − Σ DEBIT` via a database `SUM` aggregate. |
-| **Validation** | Bean Validation (`@NotBlank`/`@Size` ids, `@Positive` amount, enum `type`, ISO-4217 `currency`) → `400` with field messages. |
-| **Service separation** | Two independent Spring Boot apps, each with its own H2; no shared code or state. |
-| **Distributed tracing** | Micrometer + OpenTelemetry; W3C `traceparent` propagated Gateway → Account; trace IDs in both services' logs. |
-| **Structured logging** | JSON (Logback + Logstash) with `timestamp`, `level`, `service`, `traceId`, `spanId`. |
-| **Health checks** | `GET /health` on both, with a live DB-connectivity check. |
-| **Custom metrics** | `gateway_events_total`, `ledger_transactions_applied_total`, + circuit-breaker state, on `/actuator/prometheus`. |
-| **Resiliency** | Resilience4j **circuit breaker + timeout** on the Gateway → Account call. |
-| **Graceful degradation** | Account down → `POST /events` returns `503`; reads keep working; balance returns a clear `503`. |
-| **Docker Compose** | `docker compose up` starts both services + observability. |
-| **Tests** | 24 across core, concurrency, resiliency, tracing, integration. |
+| **Idempotency** | `eventId` is the primary key in both stores, with an insert-and-catch that remains correct under concurrent duplicates. The original is returned on a repeat; balance is never altered twice. |
+| **Out-of-order tolerance** | Listings sort by `eventTimestamp`; balance is an order-independent fold. |
+| **Balance** | `Σ CREDIT − Σ DEBIT`, computed with a database `SUM` aggregate. |
+| **Validation** | Bean Validation on the request DTO (`@NotBlank`/`@Size` ids, `@Positive` amount, enum-bound `type`, ISO-4217 `currency`) returns `400` with field-level messages. |
+| **Service separation** | Two independent Spring Boot applications, each with its own H2 instance; no shared code or state. |
+| **Distributed tracing** | Micrometer Tracing with the OpenTelemetry bridge; W3C `traceparent` propagated Gateway → Account; trace IDs in both services' logs. |
+| **Structured logging** | JSON (Logback + Logstash encoder) with `timestamp`, `level`, `service`, `traceId`, `spanId`. |
+| **Health checks** | `GET /health` on both services with a live database-connectivity check. |
+| **Custom metrics** | `gateway_events_total` and `ledger_transactions_applied_total`, plus circuit-breaker state, exposed at `/actuator/prometheus`. |
+| **Resiliency** | Resilience4j circuit breaker with connect/read timeouts on the Gateway → Account call. |
+| **Graceful degradation** | Account Service down → `POST /events` returns `503`; `GET /events/{id}` and `?account=` continue to work; balance queries return a clear `503`. |
+| **Docker Compose** | `docker compose up` starts both services and the observability stack. |
+| **Automated tests** | 24 tests across core functionality, concurrency, resiliency, trace propagation, and integration. |
 
-Design trade-offs and assumptions (duplicate → `200`, one currency per account, etc.) are in the
-**[Architecture doc](docs/ARCHITECTURE.md#7-trade-offs--alternatives)**.
+Design trade-offs and assumptions (duplicate returns `200`, one currency per account, and others)
+are documented in the [Architecture doc](docs/ARCHITECTURE.md#7-trade-offs--alternatives).
 
 </details>
 
 <details>
-<summary><b>📋 API at a glance</b> (click to expand)</summary>
+<summary><b>API contract</b></summary>
 
 <br>
 
@@ -119,19 +116,19 @@ Design trade-offs and assumptions (duplicate → `200`, one currency per account
 | `POST` | `/events` | Submit a transaction event |
 | `GET` | `/events/{id}` | Retrieve a single event (Gateway-local) |
 | `GET` | `/events?account={id}` | List an account's events, ordered by `eventTimestamp` |
-| `GET` | `/accounts/{id}/balance` | Balance, proxied to the Account Service through the breaker |
-| `GET` | `/health` | Health + DB connectivity |
+| `GET` | `/accounts/{id}/balance` | Balance, proxied to the Account Service through the circuit breaker |
+| `GET` | `/health` | Health and database connectivity |
 
 **Account Service** (internal, `:8081`)
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/accounts/{id}/transactions` | Apply a transaction (idempotent on `eventId`) |
-| `GET` | `/accounts/{id}/balance` | Current balance + credit/debit counts |
-| `GET` | `/accounts/{id}` | Account details + recent transactions |
-| `GET` | `/health` | Health + DB connectivity |
+| `GET` | `/accounts/{id}/balance` | Current balance with credit/debit counts |
+| `GET` | `/accounts/{id}` | Account details and recent transactions |
+| `GET` | `/health` | Health and database connectivity |
 
-`POST /events` body:
+`POST /events` request body:
 
 ```json
 {
@@ -145,13 +142,13 @@ Design trade-offs and assumptions (duplicate → `200`, one currency per account
 }
 ```
 
-Status codes: `201` applied · `200` duplicate · `400` invalid · `422` business rule (e.g. currency
-mismatch) · `503` Account Service unavailable. Full contract also published as OpenAPI at
-`/swagger-ui.html` on each service.
+Status codes: `201` applied, `200` duplicate, `400` invalid input, `422` business-rule rejection
+(e.g. currency mismatch), `503` Account Service unavailable. The full contract is also published as
+OpenAPI at `/swagger-ui.html` on each service.
 
 </details>
 
 ---
 
-**Stack:** Java 21 · Spring Boot 3.3 · H2 · Resilience4j · Micrometer + OpenTelemetry · Logback JSON ·
-JUnit 5 + WireMock · Docker Compose + Jaeger + Prometheus.
+**Technology:** Java 21, Spring Boot 3.3, H2, Resilience4j, Micrometer with OpenTelemetry,
+Logback (JSON), JUnit 5 with WireMock, and Docker Compose with Jaeger and Prometheus.
