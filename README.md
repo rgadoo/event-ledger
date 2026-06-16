@@ -53,9 +53,13 @@ context generated at the Gateway is propagated to the Account Service via the W3
 header, so a single client request is one traceable path across both services.
 
 **Why the Account Service owns balance as a fold.** The balance is computed as
-`sum(CREDIT) − sum(DEBIT)` over the stored transactions. Because it's a fold over a set, the
-**arrival order is irrelevant** and **replaying an event is harmless** — the two hard requirements
-(out-of-order, duplicates) fall out of the data model rather than needing special-case code.
+`sum(CREDIT) − sum(DEBIT)` over the stored transactions (a database `SUM` aggregate). Because it's a
+fold over a set, the **arrival order is irrelevant** and **replaying an event is harmless** — the two
+hard requirements (out-of-order, duplicates) fall out of the data model rather than needing
+special-case code.
+
+> 📐 Detailed diagrams — request sequence, idempotency flow, state machines, ER model, deployment —
+> are in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
 
@@ -105,10 +109,10 @@ The inter-service contract is also published as **OpenAPI** on each service (`/s
 
 | Requirement | Implementation |
 |---|---|
-| **Idempotency** | `eventId` is the primary key in both stores. The Gateway returns the original on a duplicate; the Account Service treats a repeat insert as a no-op. Balance is never altered twice. |
+| **Idempotency** | `eventId` is the primary key in both stores, with an insert-and-catch that stays correct even under **concurrent** duplicates. The Gateway returns the original on a duplicate; balance is never altered twice. |
 | **Out-of-order tolerance** | Listings sort by `eventTimestamp`; balance is an order-independent fold. |
-| **Balance** | `sum(CREDIT) − sum(DEBIT)`, computed in `AccountService.balance()`. |
-| **Validation** | Bean Validation on the request DTO (`@NotBlank`, `@Positive`, enum-bound `type`) → `400` with field-level messages. |
+| **Balance** | `sum(CREDIT) − sum(DEBIT)` via a database `SUM` aggregate in `AccountService.balance()`. |
+| **Validation** | Bean Validation on the request DTO (`@NotBlank`/`@Size` ids, `@Positive` amount, enum-bound `type`, ISO-4217 `currency`) → `400` with field-level messages. |
 | **Service separation** | Two independent Spring Boot apps, each with its own H2 instance; no shared code/state. |
 | **Distributed tracing** | Micrometer Tracing + OpenTelemetry bridge; W3C `traceparent` propagated Gateway → Account; trace IDs in both services' logs. |
 | **Structured logging** | JSON via Logback + Logstash encoder, with `timestamp`, `level`, `service`, `traceId`, `spanId`. |
@@ -160,6 +164,14 @@ returns the winning record as a duplicate — exactly one apply, proven by a 16-
 The Gateway commits the event record *before* calling the Account Service and updates its status
 afterward (each as its own transaction). So even when the downstream call fails, the local record
 survives — which is what keeps the read endpoints available during an outage.
+
+### Security posture
+
+Input is bounded (`@Size` ids, ISO-4217 `currency`), the `metadata` JSON is parsed without
+polymorphic typing (no deserialization-gadget surface), queries are fully parameterized, and the
+containers run as a **non-root** user. Known production gaps — authentication/authorization, TLS,
+rate limiting — are deliberately deferred (the brief doesn't require them) and catalogued with
+severities in **[docs/SECURITY.md](docs/SECURITY.md)**.
 
 ---
 
@@ -306,7 +318,8 @@ endpoint, OpenAPI/Swagger docs, retry-aware idempotency.
   idempotency makes replay safe). Deferred to keep the submission within its time budget and avoid
   the replay-ordering/test-surface risk it adds.
 - **Conflicting-replay detection** — reject a repeat `eventId` whose payload differs from the original.
-- **Rate limiting** and **contract tests** (e.g. Pact) between the two services.
+- **Rate limiting**, **auth/TLS**, and **contract tests** (Pact) — the full production-hardening list
+  with severities is in [docs/SECURITY.md](docs/SECURITY.md).
 
 ---
 
@@ -319,5 +332,6 @@ event-ledger/
 ├── otel-collector-config.yaml
 ├── prometheus.yml
 ├── account-service/            # internal service (balances, transactions)
-└── event-gateway/              # public service (validation, idempotency, resilient calls)
+├── event-gateway/              # public service (validation, idempotency, resilient calls)
+└── docs/                       # ARCHITECTURE, SECURITY, TESTING, TOOLS (+ images)
 ```
