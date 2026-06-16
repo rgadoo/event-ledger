@@ -82,6 +82,26 @@ class GatewayIntegrationTest extends WireMockGatewayTest {
     }
 
     @Test
+    void downstreamBusinessRejectionIsSurfacedWithItsStatus() {
+        // Account Service rejects the transaction with 422 (e.g. currency mismatch).
+        wireMock.stubFor(post(urlPathMatching("/accounts/.*/transactions"))
+                .willReturn(aResponse().withStatus(422)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("{\"message\":\"currency mismatch\"}")));
+
+        ResponseEntity<String> response =
+                postEvent(event("rej-1", "acct-1", "CREDIT", "10", "2026-05-15T10:00:00Z"));
+
+        // The 4xx is forwarded, not masked as a 500/502/503.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
+        // The event is recorded locally as FAILED and remains readable.
+        ResponseEntity<String> byId = rest.getForEntity("/events/rej-1", String.class);
+        assertThat(byId.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(byId.getBody()).contains("\"status\":\"FAILED\"");
+    }
+
+    @Test
     void eventsAreListedInChronologicalOrderRegardlessOfArrival() {
         stubApplyAccepted();
         // Arrive out of order: later timestamp first, earlier timestamp second.

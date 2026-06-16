@@ -54,12 +54,16 @@ public class GlobalExceptionHandler {
                 ex.getMessage(), request.getRequestURI()));
     }
 
-    /** Account Service returned a 4xx — a data/contract problem, not an outage. */
+    /**
+     * Account Service returned a 4xx — a business-rule rejection (e.g. currency mismatch),
+     * not an outage. Forward the downstream status to the client rather than masking it as a
+     * 500/502, so a client error stays a client error.
+     */
     @ExceptionHandler(HttpClientErrorException.class)
     public ResponseEntity<ApiError> handleDownstreamClientError(HttpClientErrorException ex,
                                                                 HttpServletRequest request) {
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(ApiError.of(
-                HttpStatus.BAD_GATEWAY.value(), "Bad Gateway",
+        return ResponseEntity.status(ex.getStatusCode()).body(ApiError.of(
+                ex.getStatusCode().value(), "Rejected by Account Service",
                 "Account Service rejected the request: " + ex.getStatusText(), request.getRequestURI()));
     }
 

@@ -61,6 +61,21 @@ class AccountControllerTest {
     }
 
     @Test
+    void rejectsMismatchedCurrencyWith422() throws Exception {
+        // Establish the account currency as USD.
+        mvc.perform(post("/accounts/acct-c/transactions").contentType(MediaType.APPLICATION_JSON)
+                        .content(body("c1", "CREDIT", "100.00")))
+                .andExpect(status().isCreated());
+
+        String eur = """
+                {"eventId":"c2","type":"DEBIT","amount":10,"currency":"EUR","eventTimestamp":"2026-05-15T11:00:00Z"}
+                """;
+        mvc.perform(post("/accounts/acct-c/transactions").contentType(MediaType.APPLICATION_JSON)
+                        .content(eur))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
     void rejectsUnknownType() throws Exception {
         mvc.perform(post("/accounts/acct-1/transactions").contentType(MediaType.APPLICATION_JSON)
                         .content(body("bad", "TRANSFER", "10")))

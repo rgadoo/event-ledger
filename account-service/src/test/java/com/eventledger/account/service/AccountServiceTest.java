@@ -1,6 +1,7 @@
 package com.eventledger.account.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.eventledger.account.domain.TransactionType;
 import com.eventledger.account.repo.TransactionRepository;
@@ -72,6 +73,23 @@ class AccountServiceTest {
         assertThat(balance.creditCount()).isEqualTo(2);
         assertThat(balance.debitCount()).isEqualTo(1);
         assertThat(balance.transactionCount()).isEqualTo(3);
+    }
+
+    @Test
+    void rejectsTransactionWithMismatchedCurrency() {
+        // First transaction establishes the account currency as USD.
+        service.apply("acct-cur", req("c1", TransactionType.CREDIT, "100.00", "2026-05-15T10:00:00Z"));
+
+        ApplyTransactionRequest eur = new ApplyTransactionRequest(
+                "c2", TransactionType.DEBIT, new BigDecimal("10.00"), "EUR",
+                Instant.parse("2026-05-15T11:00:00Z"));
+
+        assertThatThrownBy(() -> service.apply("acct-cur", eur))
+                .isInstanceOf(CurrencyMismatchException.class);
+
+        // Rejected transaction left no trace; balance is untouched.
+        assertThat(service.balance("acct-cur").transactionCount()).isEqualTo(1);
+        assertThat(service.balance("acct-cur").balance()).isEqualByComparingTo("100.00");
     }
 
     @Test

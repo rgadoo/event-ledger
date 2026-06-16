@@ -50,6 +50,12 @@ public class AccountService {
         if (existing.isPresent()) {
             return asDuplicate(existing.get());
         }
+        // An account's currency is established by its first transaction; later ones must match.
+        repository.findFirstByAccountId(accountId).ifPresent(prior -> {
+            if (!prior.getCurrency().equals(request.currency())) {
+                throw new CurrencyMismatchException(accountId, prior.getCurrency(), request.currency());
+            }
+        });
         try {
             TransactionRecord saved = repository.save(new TransactionRecord(
                     request.eventId(), accountId, request.type(), request.amount(),

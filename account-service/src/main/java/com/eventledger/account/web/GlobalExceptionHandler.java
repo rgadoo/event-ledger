@@ -29,6 +29,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
+    /** A well-formed request that breaks a business rule (e.g. currency mismatch). */
+    @ExceptionHandler(com.eventledger.account.service.CurrencyMismatchException.class)
+    public ResponseEntity<ApiError> handleCurrencyMismatch(
+            com.eventledger.account.service.CurrencyMismatchException ex, HttpServletRequest request) {
+        return ResponseEntity.unprocessableEntity().body(ApiError.of(
+                HttpStatus.UNPROCESSABLE_ENTITY.value(), "Unprocessable Entity",
+                ex.getMessage(), request.getRequestURI()));
+    }
+
     /** Malformed JSON or an unparseable value (e.g. an unknown transaction type). */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> handleUnreadable(HttpMessageNotReadableException ex,

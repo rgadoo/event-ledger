@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 
 @Service
 public class EventService {
@@ -96,6 +97,14 @@ public class EventService {
             log.warn("Event stored but not applied (Account Service unavailable): eventId={}", req.eventId());
             count(req.type().name(), "degraded");
             return new SubmitResult(record, SubmitOutcome.DEGRADED);
+        } catch (HttpClientErrorException e) {
+            // Account Service rejected the transaction on a business rule (e.g. currency mismatch).
+            // Not retryable; record it and surface the downstream status to the client.
+            record.markFailed("Account Service rejected the transaction (" + e.getStatusCode() + ")");
+            repository.save(record);
+            log.warn("Event rejected by Account Service: eventId={} status={}", req.eventId(), e.getStatusCode());
+            count(req.type().name(), "rejected");
+            throw e;
         }
     }
 
