@@ -1,90 +1,87 @@
 # Process & Decisions
 
-A short account of how I approached this exercise — the lifecycle, where I applied judgment, how I
-used AI tooling, and where the time went. The goal is to make the *engineering decisions* visible,
-not just the finished result.
+A short summary of how I approached this exercise: how I planned it, the decisions I made and why,
+how I used AI tools, and where my time went. The aim is to show the thinking behind the work, not
+just the finished code.
 
 ## Approach
 
-I treated this as a design exercise first and a coding exercise second:
+I treated this as a design problem first and a coding problem second.
 
-1. **Read the brief and pinned down the real choices** before writing any code — language and
-   framework, the resiliency pattern, and how far to take tracing and the optional bonuses. A few of
-   these were genuine forks worth deciding deliberately rather than defaulting into.
-2. **Locked the architecture up front** — two independently deployable services, each with its own
-   database; balance modeled as a fold; idempotency keyed on `eventId`; a circuit breaker on the
-   inter-service call. Writing that down first turned the implementation into execution rather than
-   exploration.
-3. **Built in small, reviewable steps**, committing each so the history reflects the actual working
-   process (a stated requirement).
+1. **I read the brief carefully and made the key choices before writing any code** — which language
+   to use, how to handle failures, and how far to take the optional extras. Some of these were real
+   decisions, so I thought them through instead of just picking the obvious option.
+2. **I decided the overall shape of the system up front** — two separate services, each with its own
+   database, and a clear plan for how they talk to each other and stay correct. Planning first meant
+   the coding was straightforward.
+3. **I built it in small steps and saved each step**, so the project history shows how it actually
+   came together (something the brief asked for).
 
-## Where I used judgment
+## The decisions I made (and why)
 
-The decisions I would defend in a review:
+- **Language — Java / Spring Boot.** It fits the kind of environment this role works in, and has
+  strong built-in support for everything the exercise asks for.
+- **Handling failure — a "circuit breaker" instead of retrying.** If the other service is down,
+  retrying just piles on more pressure. A circuit breaker stops calling it for a short while, then
+  checks whether it has recovered — and heals on its own.
+- **Working out the balance by adding up history, rather than keeping one running number.** This
+  sounds small, but it is the most important choice: it means the balance is automatically correct
+  even when events arrive in the wrong order or arrive twice.
+- **Preventing duplicates safely.** Every event has a unique id. I made sure the system handles two
+  copies arriving at the exact same moment — not just the easy case.
+- **Knowing when to stop.** I added the two optional features that give the most value for the least
+  risk, and deliberately left out one that would have taken a lot of time for little gain.
 
-- **Stack — Java / Spring Boot.** Matches the target environment and has first-class support for what
-  is being graded: Resilience4j, Micrometer with OpenTelemetry, and Actuator.
-- **Resiliency — circuit breaker over retry.** The failure mode that matters is a downstream outage,
-  where retries only add load to a struggling service. A breaker fails fast and self-heals.
-- **Balance as a fold, not a running total.** This makes out-of-order tolerance and idempotency
-  properties of the data model instead of special-case code — the most leveraged decision in the design.
-- **Idempotency strategy.** Primary key for de-duplication, with insert-and-catch so it stays correct
-  under concurrency rather than relying on a naive check-then-insert.
-- **Scope discipline.** I chose the two bonuses with the best ratio of reviewer value to risk (Jaeger
-  and Prometheus) and explicitly deferred the async fallback queue rather than half-building it.
+## How it came together
 
-## Lifecycle
+I built a working version first, then made it stronger.
 
-Working software first, then depth:
-
-1. **Build** — Account Service, then Gateway, then resiliency, tracing, observability, Docker Compose,
-   tests, and the README — each as its own commit.
-2. **Verify** — ran the full stack and exercised every behavior by hand (idempotency, out-of-order,
-   degradation, and the trace in Jaeger) before trusting it.
-3. **Audit & harden** — once it worked, I ran a deliberate principal-level review of my own code and
-   found real gaps: idempotency that raced under concurrency, currency that could be summed
-   inconsistently, and a balance that loaded every row. I fixed each with a test that fails without the fix.
-4. **Security review** — a threat-model pass (input bounds, deserialization safety, non-root
-   containers, actuator posture), documented with severities.
-5. **Regression** — re-ran the suite and a full live Docker end-to-end pass (functional, resiliency,
-   observability) before finalizing.
-6. **Documentation** — the README as the front door, with deeper docs for architecture, security,
-   testing, and tooling.
+1. **Build** — the two services, the tests, the Docker setup, and a first README, one step at a time.
+2. **Check it by hand** — I ran the whole thing and tried every scenario myself (duplicates,
+   out-of-order events, a service going down) before trusting it.
+3. **Review my own work like a senior engineer** — once it worked, I went looking for weaknesses on
+   purpose. I found three real ones — around simultaneous duplicates, mixing currencies, and how the
+   balance was calculated at large scale — and fixed each, adding a test that proves the fix.
+4. **Security check** — I reviewed it for common risks and tightened what I could, then wrote up
+   what is safe and what I would improve for a real production system.
+5. **Re-test everything** — I ran the full automated tests again, plus a complete live run in Docker,
+   to confirm nothing broke.
+6. **Documentation** — a clear README as the starting point, with deeper documents for the design,
+   security, testing, and tools.
 
 ## How I used AI
 
-I used Claude Code as a pair-programmer and kept the engineering judgment with me:
+I used an AI coding assistant (Claude Code) as a partner, but I stayed in charge of the decisions.
 
-- **I owned the decisions** — requirement interpretation, the design, the resiliency choice, the scope,
-  and the call to run a principal-level audit and a security pass.
-- **The agent accelerated execution** — scaffolding, boilerplate, test authoring, and documentation
-  drafts — which I reviewed and steered at each step.
-- **I directed the hard parts** — I pushed the concurrency and financial-correctness audit that
-  surfaced the real bugs, set the documentation tone, and drove the end-to-end regression. The AI moved
-  fast; I decided *what* was worth doing and *whether* the output was correct.
+- **I made the calls** — what to build, how to design it, how to handle failure, what to include, and
+  when to do the deeper reviews.
+- **The AI did the heavy lifting on typing** — setting things up, writing routine code and tests, and
+  drafting documentation — which I checked and adjusted at every step.
+- **I drove the important parts** — I pushed for the deeper review that found the real problems, set
+  the tone for the documentation, and ran the final testing. The AI was fast; I decided what was worth
+  doing and whether the result was right.
 
-The net effect: the tooling removed most of the typing, so a larger share of the time went to the
-things that actually differentiate the work — correctness under concurrency, financial correctness,
-security, and clear documentation.
+The benefit: because the AI handled most of the routine work, I could spend more of my time on the
+things that actually matter — making sure it is correct, secure, and well documented.
 
 ## Where the time went
 
-Comfortably within the budgeted window, with the effort weighted toward the parts that matter:
+Comfortably within the time budget, with most of the effort going to the parts that matter:
 
-| Phase | Focus |
+| Phase | What I focused on |
 |---|---|
-| Design & clarification | deciding the forks, locking the architecture |
-| Core build | both services, tests, Docker, first README |
-| Audit & hardening | concurrency, currency, balance scalability — each with a test |
-| Security review | threat model and fixes |
-| Regression | full suite plus a live Docker end-to-end pass |
-| Documentation | README and the architecture / security / testing / tooling docs |
+| Planning | making the key decisions and deciding the design |
+| Building | both services, tests, Docker, first README |
+| Strengthening | fixing the three issues I found, each with a test |
+| Security | reviewing risks and tightening them |
+| Re-testing | full automated tests plus a live Docker run |
+| Documentation | the README and the supporting documents |
 
-Because AI assistance compressed the implementation, the depth — the self-audit, the security review,
-and the documentation — fit inside the same budget that would otherwise have gone to boilerplate.
+Because the AI handled most of the routine coding, I could spend the saved time on the review, the
+security work, and clear documentation — instead of on routine setup.
 
 ## What I would do next
 
-With more time: authentication and authorization, an async fallback queue to auto-replay failed events
-on recovery, rate limiting, and contract tests between the services. These are catalogued in the
-architecture and security docs rather than half-built here.
+With more time I would add sign-in and access control, automatic retry of failed events once a
+service recovers, limits on how fast requests can arrive, and extra tests between the two services.
+I have written these up in the design and security documents rather than half-building them here.
