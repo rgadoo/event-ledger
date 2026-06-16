@@ -102,6 +102,33 @@ class GatewayIntegrationTest extends WireMockGatewayTest {
     }
 
     @Test
+    void failedEventIsRetriedAndAppliedOnResubmission() {
+        // First attempt: Account Service errors -> event stored as FAILED, caller gets 503.
+        wireMock.stubFor(post(urlPathMatching("/accounts/.*/transactions"))
+                .willReturn(aResponse().withStatus(500)));
+        String payload = event("retry-1", "acct-1", "CREDIT", "10", "2026-05-15T10:00:00Z");
+        assertThat(postEvent(payload).getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(rest.getForEntity("/events/retry-1", String.class).getBody())
+                .contains("\"status\":\"FAILED\"");
+
+        // Account Service recovers; resubmitting the same eventId now applies it (no duplicate).
+        wireMock.resetAll();
+        wireMock.stubFor(post(urlPathMatching("/accounts/.*/transactions"))
+                .willReturn(aResponse().withStatus(201)
+                        .withHeader("Content-Type", "application/json").withBody("{}")));
+
+        ResponseEntity<String> retry = postEvent(payload);
+        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(retry.getBody()).contains("\"status\":\"APPLIED\"");
+    }
+
+    @Test
+    void getMissingEventReturns404() {
+        assertThat(rest.getForEntity("/events/does-not-exist", String.class).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void eventsAreListedInChronologicalOrderRegardlessOfArrival() {
         stubApplyAccepted();
         // Arrive out of order: later timestamp first, earlier timestamp second.

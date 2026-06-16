@@ -1,5 +1,6 @@
 package com.eventledger.account.web;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -80,6 +81,20 @@ class AccountControllerTest {
         mvc.perform(post("/accounts/acct-1/transactions").contentType(MediaType.APPLICATION_JSON)
                         .content(body("bad", "TRANSFER", "10")))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void accountDetailsReturnBalanceAndRecentTransactions() throws Exception {
+        mvc.perform(post("/accounts/acct-d/transactions").contentType(MediaType.APPLICATION_JSON)
+                .content(body("d1", "CREDIT", "100.00"))).andExpect(status().isCreated());
+        mvc.perform(post("/accounts/acct-d/transactions").contentType(MediaType.APPLICATION_JSON)
+                .content(body("d2", "DEBIT", "30.00"))).andExpect(status().isCreated());
+
+        mvc.perform(get("/accounts/acct-d"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balance", is(70.00)))
+                .andExpect(jsonPath("$.transactionCount", is(2)))
+                .andExpect(jsonPath("$.recentTransactions", hasSize(2)));
     }
 
     @Test
