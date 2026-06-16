@@ -91,11 +91,11 @@ Gateway → Account integration. Requires JDK 21 — if your default `mvn` runs 
 
 | Topic | Document |
 |---|---|
+| How this was approached — decisions, lifecycle, and use of AI tooling | [Process & Decisions](docs/PROCESS.md) |
 | Architecture and design, with diagrams (request flow, state machines, data model, deployment) | [Architecture & Design](docs/ARCHITECTURE.md) |
 | Security review — threat model, current posture, and production recommendations | [Security Audit](docs/SECURITY.md) |
 | Manual test walkthrough — every behavior, step by step, with `curl` examples | [Testing Walkthrough](docs/TESTING.md) |
 | Observability and tooling — Jaeger, Prometheus, Swagger, IntelliJ | [Tools & Observability](docs/TOOLS.md) |
-| How this was approached — decisions, lifecycle, and use of AI tooling | [Process & Decisions](docs/PROCESS.md) |
 
 ---
 
